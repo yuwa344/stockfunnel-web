@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <title>六层漏斗选股</title>
+  <meta name="description" content="A股全市场六层多因子漏斗筛选：趋势、基本面、RS强度、VCP收缩、筹码集中、枢轴突破">
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#08080c" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="六层漏斗选股">
+  <link rel="apple-touch-icon" href="assets/icon-180.png">
+  <link rel="icon" type="image/png" href="assets/icon-192.png">
+
+  <link rel="stylesheet" href="src/core/glass.css">
+  <style>
+    /* 首屏骨架，避免白屏闪烁 */
+    #boot {
+      position: fixed; inset: 0; z-index: 999;
+      display: flex; align-items: center; justify-content: center;
+      background: #f4f5f7;
+      transition: opacity .3s ease;
+    }
+    @media (prefers-color-scheme: dark) { #boot { background: #08080c; } }
+    #boot.hide { opacity: 0; pointer-events: none; }
+    #boot .ring {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 2.5px solid rgba(128,128,128,.22);
+      border-top-color: #0a84ff;
+      animation: bootspin .75s linear infinite;
+    }
+    @keyframes bootspin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="boot"><div class="ring"></div></div>
+
+  <div id="ambient" aria-hidden="true"></div>
+  <div id="app"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="src/main.js"></script>
+  <script>
+    // 模块加载完成后移除骨架
+    window.addEventListener('load', () => {
+      setTimeout(() => document.getElementById('boot')?.classList.add('hide'), 220);
+    });
+    setTimeout(() => document.getElementById('boot')?.classList.add('hide'), 3500);
+  </script>
+</body>
+</html>

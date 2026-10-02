@@ -1,0 +1,17 @@
+{
+  "name": "stockfunnel",
+  "version": "1.0.0",
+  "description": "A股全市场六层多因子漏斗筛选 · Liquid Glass Web App",
+  "type": "module",
+  "scripts": {
+    "dev": "python -m http.server 8899",
+    "dev:cf": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute stockfunnel --file=./schema.sql",
+    "db:create": "wrangler d1 create stockfunnel",
+    "admin": "node scripts/create-admin.js"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

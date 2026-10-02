@@ -1,0 +1,26 @@
+{
+  "name": "六层漏斗选股",
+  "short_name": "漏斗选股",
+  "description": "A股全市场六层多因子漏斗筛选：趋势、基本面、RS强度、VCP收缩、筹码集中、枢轴突破",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#08080c",
+  "theme_color": "#0a84ff",
+  "lang": "zh-CN",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "开始筛选",
+      "short_name": "筛选",
+      "url": "./index.html#funnel",
+      "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
