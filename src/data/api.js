@@ -15,12 +15,24 @@
  * 无需 Dart 侧的手写码表。生僻字用 `gb18030` 兜底（超集，兼容 GBK）。
  */
 
-const PROXY_BASE = localStorage.getItem('sf_proxy') || '';
+/**
+ * 读取本地代理配置。
+ * 用函数 + try 包裹而非模块顶层求值，避免在无 localStorage 的环境
+ * （Node 测试、Service Worker、部分隐私模式）直接抛 ReferenceError。
+ */
+function getProxyBase() {
+  try {
+    return localStorage.getItem('sf_proxy') || '';
+  } catch {
+    return '';
+  }
+}
 
 /** 走代理（若配置），否则直连。 */
 function withProxy(url) {
-  if (!PROXY_BASE) return url;
-  return PROXY_BASE + encodeURIComponent(url);
+  const base = getProxyBase();
+  if (!base) return url;
+  return base + encodeURIComponent(url);
 }
 
 /** 通用 fetch + 超时 + GBK 解码 */

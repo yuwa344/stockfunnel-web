@@ -432,7 +432,7 @@ svg.ic.ic.ic {
 }
 :root[data-theme='dark'] .chip.on { color: #64b5ff; }
 
-input[type='text'], input[type='search'] {
+input[type='text'], input[type='search'], input[type='password'] {
   width: 100%;
   padding: 11px 14px;
   border-radius: var(--r-md);
@@ -444,14 +444,23 @@ input[type='text'], input[type='search'] {
   font-size: 15px;
   font-family: inherit;
   outline: none;
+  /* 关键：避免 placeholder 文本溢出输入框 */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: border-color 0.2s, box-shadow 0.2s;
+}
+/* placeholder 一律使用 font-size，避免某些浏览器下默认字号溢出 */
+input::placeholder {
+  color: var(--text-3);
+  font-size: 14px;
+  opacity: 1;
 }
 input:focus {
   border-color: rgba(10, 132, 255, 0.5);
   box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.14);
 }
-
-input::placeholder { color: var(--text-3); }
 
 .row { display: flex; align-items: center; gap: 10px; }
 .grow { flex: 1; min-width: 0; }

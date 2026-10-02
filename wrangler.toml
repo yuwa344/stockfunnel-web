@@ -1,36 +1,23 @@
-#:schema node_modules/wrangler/config-schema.json
-{
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "stockfunnel",
-  "main": "worker/index.js",
-  "compatibility_date": "2025-06-01",
-  "compatibility_flags": ["nodejs_compat"],
+name = "stockfunnel"
+main = "worker/index.js"
+compatibility_date = "2025-06-01"
+compatibility_flags = ["nodejs_compat"]
 
-  // D1 数据库绑定
-  // 首次创建：wrangler d1 create stockfunnel
-  // 然后把返回的 database_id 填到下面
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "stockfunnel",
-      "database_id": "REPLACE_WITH_YOUR_D1_ID",
-      "migrations_dir": "migrations"
-    }
-  ],
+# D1 binding - run: wrangler d1 create stockfunnel
+# then replace database_id below with the returned value
+[[d1_databases]]
+binding = "DB"
+database_name = "stockfunnel"
+database_id = "REPLACE_WITH_YOUR_D1_ID"
+migrations_dir = "migrations"
 
-  // 前端静态资源（与 Worker 同域部署，无需 CORS）
-  "assets": {
-    "directory": ".",
-    "binding": "ASSETS",
-    // 不排除 worker/ 与 schema.sql，避免被当作静态资源
-    "not_found_handling": "none"
-  },
+[assets]
+directory = "."
+binding = "ASSETS"
+not_found_handling = "none"
 
-  "observability": {
-    "enabled": true
-  },
+[observability]
+enabled = true
 
-  "vars": {
-    "APP_NAME": "六层漏斗选股"
-  }
-}
+[vars]
+APP_NAME = "六层漏斗选股"

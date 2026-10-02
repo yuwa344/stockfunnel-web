@@ -7,9 +7,22 @@
 
 const TOKEN_KEY = 'sf_token';
 
+/** 安全读取 localStorage（隐私模式 / 非浏览器环境会抛错） */
+function readToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || null; }
+  catch { return null; }
+}
+
+function writeToken(t) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* 忽略 */ }
+}
+
 export class Api {
   constructor() {
-    this.token = localStorage.getItem(TOKEN_KEY) || null;
+    this.token = readToken();
     this.user = null;
     this.quota = null;
     this._listeners = new Set();
@@ -26,8 +39,7 @@ export class Api {
 
   _setToken(t) {
     this.token = t;
-    if (t) localStorage.setItem(TOKEN_KEY, t);
-    else localStorage.removeItem(TOKEN_KEY);
+    writeToken(t);
   }
 
   async _req(path, { method = 'GET', body, auth = true } = {}) {

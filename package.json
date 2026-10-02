@@ -12,6 +12,6 @@
     "admin": "node scripts/create-admin.js"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.147.0"
   }
 }
