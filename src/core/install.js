@@ -16,23 +16,29 @@
  * → 确认安装 → 主屏幕出现图标」的完整链路，等效于 Android 的桌面添加。
  */
 
+/** UA 读取（Node 测试环境下 navigator 不存在，返回空串） */
+function ua() {
+  return (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+}
+
 const isIOS = () => {
-  const ua = navigator.userAgent;
+  const s = ua();
   // iPadOS 13+ 伪装为 Mac，用触点检测补充判断
-  const iPadOS = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
-  return /iPhone|iPad|iPod/.test(ua) || iPadOS;
+  const maxTouch = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
+  const iPadOS = /Macintosh/.test(s) && maxTouch > 1;
+  return /iPhone|iPad|iPod/.test(s) || iPadOS;
 };
 
-const isSafari = () => {
-  const ua = navigator.userAgent;
-  return /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+const isSafari = () => /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua());
+
+const isStandalone = () => {
+  // Node / 测试环境下无 window.matchMedia
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator?.standalone === true;
 };
 
-const isStandalone = () =>
-  window.matchMedia('(display-mode: standalone)').matches ||
-  window.navigator.standalone === true;
-
-const isAndroid = () => /android/i.test(navigator.userAgent);
+const isAndroid = () => /android/i.test(ua());
 
 /* ------------------------------------------------------------------ */
 /* Android：beforeinstallprompt                                          */
@@ -73,44 +79,92 @@ export async function promptInstall() {
 /* iOS：描述文件                                                        */
 /* ------------------------------------------------------------------ */
 
-/** 生成 .mobileconfig（Web Clip 描述文件）内容 */
-export function buildMobileConfig({ url, label = '六层漏斗选股', iconDataUrl }) {
-  const plist = `<?xml version="1.0" encoding="UTF-8"?>
+/**
+ * 生成 .mobileconfig（Web Clip 描述文件）内容。
+ *
+ * ## 结构说明（踩坑记录）
+ * `com.apple.webClip.managed` 的 PayloadContent 必须是 WebClip 字典本身，
+ * URL 直接放在它的 `URL` 键下。早期版本在 PayloadContent 里又嵌了一层
+ * `{URL, WebClip:{...}}`，且 Icon 为空 `<data></data>`，
+ * iOS 校验直接报「必填字段 url 缺失」。
+ *
+ * 另外 WebClip 字典需包含：
+ *  - URL        必填
+ *  - Label      图标下方显示的名称
+ *  - IconData   可选，纯 base64（**不带 data: 前缀**）
+ *  - IsRemovable 设为 false 可禁止用户误删
+ *
+ * PayloadScope=System 让描述文件免信任安装（否则每次打开都提示信任）。
+ */
+export function buildMobileConfig({
+  url,
+  label = '六层漏斗选股',
+  iconBase64 = '',
+  ignoreCertificate = true,
+}) {
+  // 规范化 URL：描述文件要求完整绝对地址，去掉 hash 与结尾斜杠之外的杂项
+  let target = String(url || '').trim();
+  if (!target) target = 'https://stockfunnel.pages.dev/';
+  if (!/^https?:\/\//i.test(target)) target = 'https://' + target.replace(/^\/+/, '');
+
+  // 图标可选：空则不写 IconData 键（写空 <data> 会导致校验失败）
+  const iconLine = iconBase64
+    ? `      <key>IconData</key>\n      <data>${iconBase64}</data>\n`
+    : '';
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>PayloadContent</key>
   <array>
     <dict>
-      <key>PayloadType</key><string>com.apple.webClip.managed</string>
-      <key>PayloadVersion</key><integer>1</integer>
-      <key>PayloadIdentifier</key><string>com.stockfunnel.webclip</string>
-      <key>PayloadUUID</key><string>${uuid()}</string>
-      <key>PayloadDisplayName</key><string>${escXml(label)}</string>
-      <key>PayloadOrganization</key><string>StockFunnel</string>
-      <key>PayloadDescription</key><string>添加到主屏幕以获得全屏体验</string>
+      <key>PayloadType</key>
+      <string>com.apple.webClip.managed</string>
+      <key>PayloadVersion</key>
+      <integer>1</integer>
+      <key>PayloadIdentifier</key>
+      <string>com.stockfunnel.webclip</string>
+      <key>PayloadUUID</key>
+      <string>${uuid()}</string>
+      <key>PayloadDisplayName</key>
+      <string>${escXml(label)}</string>
+      <key>PayloadDescription</key>
+      <string>在主屏幕创建应用图标</string>
+      <key>PayloadScope</key>
+      <string>System</string>
       <key>PayloadContent</key>
       <dict>
-        <key>URL</key><string>${escXml(url)}</string>
-        <key>WebClip</key>
-        <dict>
-          <key>Label</key><string>${escXml(label)}</string>
-          <key>URL</key><string>${escXml(url)}</string>
-          <key>Icon</key><data>${iconDataUrl || ''}</data>
-        </dict>
-      </dict>
+        <key>URL</key>
+        <string>${escXml(target)}</string>
+        <key>Label</key>
+        <string>${escXml(label)}</string>
+        <key>IsRemovable</key>
+        <false/>
+        <key>IgnoreCertificate</key>
+        <${ignoreCertificate ? 'true' : 'false'}/>
+${iconLine}      </dict>
     </dict>
   </array>
-  <key>PayloadType</key><string>Configuration</string>
-  <key>PayloadVersion</key><integer>1</integer>
-  <key>PayloadIdentifier</key><string>com.stockfunnel.profile</string>
-  <key>PayloadUUID</key><string>${uuid()}</string>
-  <key>PayloadDisplayName</key><string>${escXml(label)}</string>
-  <key>PayloadDescription</key><string>安装后将在主屏幕创建应用图标</string>
-  <key>PayloadRemovalDisallowed</key><false/>
+  <key>PayloadType</key>
+  <string>Configuration</string>
+  <key>PayloadVersion</key>
+  <integer>1</integer>
+  <key>PayloadIdentifier</key>
+  <string>com.stockfunnel.profile</string>
+  <key>PayloadUUID</key>
+  <string>${uuid()}</string>
+  <key>PayloadDisplayName</key>
+  <string>${escXml(label)}</string>
+  <key>PayloadDescription</key>
+  <string>安装后主屏幕出现图标，可全屏运行</string>
+  <key>PayloadRemovalDisallowed</key>
+  <false/>
+  <key>PayloadOrganization</key>
+  <string>StockFunnel</string>
 </dict>
-</plist>`;
-  return plist;
+</plist>
+`;
 }
 
 function uuid() {
@@ -127,33 +181,86 @@ function escXml(s) {
   );
 }
 
-/** 触发描述文件下载（iOS Safari 会提示"正在下载描述文件"） */
+/** UTF-8 安全的 base64（避免 String.fromCharCode(...bigArray) 栈溢出） */
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  const CHUNK = 0x8000;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(
+      null,
+      bytes.subarray(i, i + CHUNK)
+    );
+  }
+  return btoa(bin);
+}
+
+/**
+ * 触发描述文件下载（iOS Safari 会提示「正在下载描述文件」）。
+ *
+ * 图标策略：优先内嵌 60×60 左右的 PNG（约 3-5 KB base64）。
+ * 内嵌的好处是安装时不依赖网络取图；若获取失败则省略 IconData 键，
+ * iOS 会用默认图标 —— **绝不能写空的 <data></data>**，会导致校验失败。
+ */
 export async function downloadProfile({ url, label }) {
-  let iconDataUrl = '';
+  let iconBase64 = '';
   try {
-    // 读取 180×180 图标并转为 base64（描述文件要求 <data> 为裸 base64）
-    const res = await fetch('assets/icon-180.png');
-    const blob = await res.blob();
-    iconDataUrl = await blobToBase64(blob);
-  } catch {
-    // 图标缺失不阻断流程
+    // 优先用 120px 索引色 PNG（1.5 KB）；拿不到再退 180px（16 KB）
+    const candidates = ['assets/icon-120-pal.png', 'assets/icon-120.png', 'assets/icon-180.png'];
+    for (const path of candidates) {
+      try {
+        const res = await fetch(path, { cache: 'force-cache' });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        if (blob.size > 0) {
+          iconBase64 = await blobToBase64(blob);
+          break;
+        }
+      } catch { /* 试下一个 */ }
+    }
+  } catch (e) {
+    console.warn('[install] 图标获取失败，将使用 iOS 默认图标', e);
   }
 
-  const xml = buildMobileConfig({ url, label, iconDataUrl });
+  const xml = buildMobileConfig({ url, label, iconBase64 });
   const blob = new Blob([xml], { type: 'application/x-apple-aspen-config' });
   const href = URL.createObjectURL(blob);
+  const filename = 'StockFunnel.mobileconfig';
 
-  // iOS Safari 对 download 属性支持有限，同时用 location 兜底
+  // 主路径：blob URL + download 属性（桌面与新版 iOS 有效）
   const a = document.createElement('a');
   a.href = href;
-  a.download = 'StockFunnel.mobileconfig';
+  a.download = filename;
   a.rel = 'noopener';
+  a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
+
+  // 兜底：data: URL。旧版 iOS Safari 对 blob: 支持差，会忽略 download 而直接打开，
+  // 故延迟片刻再补一次 data: 触发。两者可共存，先命中者生效。
+  setTimeout(() => {
+    try {
+      const b = document.createElement('a');
+      b.href = 'data:application/x-apple-aspen-config;charset=utf-8;base64,'
+             + utf8ToBase64(xml);
+      b.download = filename;
+      b.rel = 'noopener';
+      b.style.display = 'none';
+      document.body.appendChild(b);
+      b.click();
+      setTimeout(() => b.remove(), 1500);
+    } catch (e) {
+      console.warn('[install] 兜底下载失败', e);
+    }
+  }, 700);
+
+  // 清理（延迟足够长，避免打断下载）
   setTimeout(() => {
     a.remove();
     URL.revokeObjectURL(href);
-  }, 3000);
+  }, 5000);
+
+  return { size: xml.length, hasIcon: !!iconBase64 };
 }
 
 function blobToBase64(blob) {
