@@ -2,6 +2,11 @@
 
 跨端 Web 应用。Liquid Glass 视觉，色调跟随系统，iOS/Android 均可安装到桌面。
 
+> **访问地址**：`https://stockfunnel.kongchris655.workers.dev`
+>
+> ⚠️ `workers.dev` 在中国大陆被 DNS 污染，**需挂 VPN**。
+> 绑定自定义域名即可直连，步骤见 [DOMAIN.md](./DOMAIN.md)（不需要 ICP 备案）。
+
 ## 六层筛选漏斗
 
 | 层 | 名称 | 核心规则 |

@@ -82,6 +82,7 @@ echo    db      Create the D1 database
 echo    init    Create tables in D1
 echo    go      Create DB, init tables, then deploy
 echo    admin   Create an admin account
+echo    domain  How to bind a custom domain (avoids workers.dev block)
 echo    proxy   How to deploy the turnover proxy Worker
 echo.
 pause
@@ -209,6 +210,36 @@ exit /b 0
 echo  No SQL entered.  Nothing was changed.
 pause
 exit /b 1
+
+REM ============================================================
+:domain
+echo  ==============================================================
+echo   Custom Domain
+echo  ==============================================================
+echo.
+echo  The default *.workers.dev address is DNS-polluted in
+echo  mainland China and needs a VPN to open.
+echo  Bind a custom domain to avoid that. No ICP filing is
+echo  needed when the zone is hosted on Cloudflare.
+echo.
+echo  Steps:
+echo    1. Have a domain whose nameservers point to Cloudflare
+echo       (Dashboard - Websites - Add a site, then update NS)
+echo    2. Workers ^& Pages - stockfunnel
+echo         - Settings - Domains ^& Routes - Add - Custom domain
+echo    3. Enter e.g.  app.yourdomain.com
+echo    4. Cloudflare handles DNS and the TLS certificate
+echo.
+echo  After binding, wrangler.toml can pin the route:
+echo    [[routes]]
+echo    pattern = "app.yourdomain.com"
+echo    custom_domain = true
+echo.
+echo  Current address:
+echo    https://stockfunnel.kongchris655.workers.dev
+echo.
+pause
+exit /b 0
 
 REM ============================================================
 :proxy

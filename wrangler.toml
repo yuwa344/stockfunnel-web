@@ -3,6 +3,14 @@ main = "worker/index.js"
 compatibility_date = "2025-06-01"
 compatibility_flags = ["nodejs_compat"]
 
+# workers.dev is DNS-polluted in mainland China, so it needs a VPN to reach.
+# Bind a custom domain instead (no ICP filing required when the zone is on
+# Cloudflare).  Uncomment and edit after adding the domain in the dashboard:
+# Workers & Pages -> stockfunnel -> Settings -> Domains & Routes -> Add.
+# [[routes]]
+# pattern = "app.example.com"
+# custom_domain = true
+
 # D1 binding - run: wrangler d1 create stockfunnel
 # then replace database_id below with the returned value
 [[d1_databases]]
