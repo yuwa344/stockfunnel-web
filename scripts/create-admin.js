@@ -13,7 +13,11 @@
 
 import { createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
 
-const ITERATIONS = 120000;
+/**
+ * 与 worker/auth.js 必须完全一致。
+ * 上限 100000：Cloudflare Workers WebCrypto 会拒绝更高迭代次数。
+ */
+const ITERATIONS = 100000;
 const KEY_LEN = 32;
 const SALT_LEN = 16;
 

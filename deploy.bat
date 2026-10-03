@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
 REM  StockFunnel - Cloudflare deployment helper (Windows)
-REM  Usage:  deploy.bat  [login|db|init|go|admin|proxy]
+REM  Usage:  deploy.bat  [login|db|init|go|admin|proxy|test]
 REM
 REM  NOTE: keep this file ASCII-only with CRLF endings.
 REM  cmd.exe reads scripts in the OEM codepage; a UTF-8 CJK
@@ -10,6 +10,30 @@ REM  newline and glue the next line onto this one.
 REM ============================================================
 setlocal
 cd /d "%~dp0"
+
+REM ---- proxy -----------------------------------------------------
+REM api.cloudflare.com is unreachable directly on some networks.
+REM If a local proxy is running, wrangler must be told about it.
+REM wrangler reads HTTPS_PROXY / HTTP_PROXY directly, so we only
+REM need to export those.  (NODE_OPTIONS=--proxy= is NOT valid:
+REM node rejects it with "not allowed in NODE_OPTIONS".)
+REM
+REM To force a specific proxy:
+REM     set SF_PROXY=http://127.0.0.1:7890
+REM then run this script again.
+if not defined SF_PROXY if defined HTTPS_PROXY set SF_PROXY=%HTTPS_PROXY%
+if not defined SF_PROXY (
+  for %%P in (10808 7890 7897 10809 1080 33210) do (
+    if not defined SF_PROXY (
+      powershell -NoProfile -Command "if (Test-NetConnection -ComputerName 127.0.0.1 -Port %%P -InformationLevel Quiet -WarningAction SilentlyContinue) { exit 0 } else { exit 1 }" >nul 2>nul
+      if not errorlevel 1 set SF_PROXY=http://127.0.0.1:%%P
+    )
+  )
+)
+if defined SF_PROXY (
+  set HTTPS_PROXY=%SF_PROXY%
+  set HTTP_PROXY=%SF_PROXY%
+)
 
 set CMD_ARG=%~1
 if "%CMD_ARG%"=="" set CMD_ARG=help
@@ -22,6 +46,13 @@ echo.
 
 where node >nul 2>nul
 if errorlevel 1 goto :nonode
+
+if defined SF_PROXY (
+  echo  Proxy   : %SF_PROXY%
+) else (
+  echo  Proxy   : none
+)
+echo.
 
 call :wver
 goto :%CMD_ARG%
@@ -45,12 +76,36 @@ REM ============================================================
 :help
 echo  Usage:  deploy.bat  command
 echo.
+echo    test    Check network access to the Cloudflare API
 echo    login   Log in to Cloudflare (opens browser)
 echo    db      Create the D1 database
 echo    init    Create tables in D1
 echo    go      Create DB, init tables, then deploy
 echo    admin   Create an admin account
 echo    proxy   How to deploy the turnover proxy Worker
+echo.
+pause
+exit /b 0
+
+REM ============================================================
+:test
+echo  Testing the Cloudflare API ...
+echo.
+call npx --no-install wrangler whoami
+echo.
+if errorlevel 1 (
+  echo  Could not reach the Cloudflare API.
+  echo.
+  echo  If a proxy is running, set it first, for example:
+  echo      set SF_PROXY=http://127.0.0.1:7890
+  echo      deploy.bat test
+  echo.
+  echo  Or turn on "system proxy" in your proxy client so
+  echo  HTTPS_PROXY is exported, then run deploy.bat again.
+) else (
+  echo  Connected.  If you have not logged in yet, run:
+  echo      deploy.bat login
+)
 echo.
 pause
 exit /b 0

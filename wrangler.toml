@@ -8,11 +8,16 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "stockfunnel"
-database_id = "REPLACE_WITH_YOUR_D1_ID"
+database_id = "e3329d3f-c767-4878-82d3-7f1a750f53e1"
 migrations_dir = "migrations"
 
+# Static assets.
+# NOTE: must be a clean directory that excludes node_modules,
+# .wrangler, worker sources, and SQL -- the project root cannot be
+# used directly because it contains a 92 MiB workerd.exe.
+# Build it first with:  npm run build
 [assets]
-directory = "."
+directory = "./public"
 binding = "ASSETS"
 not_found_handling = "none"
 

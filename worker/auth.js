@@ -10,7 +10,14 @@
  *   JWT 无状态做不到，除非每次都查库（那就失去无状态的意义了）。
  */
 
-const ITERATIONS = 120000;
+/**
+ * PBKDF2 迭代次数。
+ *
+ * 上限 100000：Cloudflare Workers 的 WebCrypto 实现会拒绝更高值
+ * （实测报 "iteration counts above 100000 are not supported"）。
+ * scripts/create-admin.js 必须与此保持一致，否则管理员密码无法校验。
+ */
+const ITERATIONS = 100000;
 const KEY_LEN = 32;
 const SALT_LEN = 16;
 const SESSION_DAYS = 30;

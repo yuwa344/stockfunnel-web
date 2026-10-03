@@ -6,3 +6,6 @@ node_modules/
 .playwright-cli/
 .idea/
 .vscode/
+
+# 构建产物：由 scripts/build-assets.js 生成
+public/
