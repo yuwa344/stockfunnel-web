@@ -83,6 +83,18 @@ export async function runFunnel(cfg, onProgress, signal) {
     });
     if (signal?.aborted) return cancelled(t0);
 
+    // ---------- 反推每日换手率（筹码层必需） ----------
+    // 唯一提供历史换手率的搜狐无 CORS 头，需用户自建代理；默认拿不到数据，
+    // 导致 turnoverRate 全为 null → 筹码分布无权重 → 第 ⑤ 层 0 只通过。
+    // 这里用「当日换手率 × 当日成交量」反推流通股本，回填到全部历史 K 线。
+    onProgress?.({ message: '推算换手率…', done: 0, total: klineMap.size });
+    let turnoverFilled = 0;
+    for (const [sym, bars] of klineMap) {
+      const r = API.inferTurnover(bars, quoteMap.get(sym));
+      if (r > 0.5) turnoverFilled++;
+    }
+    const turnoverAvailable = turnoverFilled > klineMap.size * 0.5;
+
     // ==================== ① 趋势 ====================
     onProgress?.({ message: '① 长期趋势筛选…', done: 0, total: valid.length });
     let trendPass = [];
@@ -172,6 +184,8 @@ export async function runFunnel(cfg, onProgress, signal) {
       if (signal?.aborted) return cancelled(t0);
       const s = fr.stock;
       const bars0 = klineMap.get(s.symbol);
+      // 优先用搜狐的真实换手率（需用户自建代理）；无代理时 bars0 已由
+      // inferTurnover 回填了推算值，attachTurnover 可安全跳过。
       const turn = turnoverMap.get(s.symbol);
       const bars = turn ? attachTurnover(bars0, turn) : bars0;
       const chip = ChipDistribution.build(bars, { lookback: cfg.chipLookback, binCount: cfg.chipBins });
@@ -185,7 +199,49 @@ export async function runFunnel(cfg, onProgress, signal) {
       rejectedStats: chipReject, scoreBy: scoreMap(chipPass),
     });
     onProgress?.({ message: `⑤ 筹码集中：${chipPass.length} 只通过`, done: chipPass.length, total: vcpPass.length });
-    if (!chipPass.length) return done(t0, stages, universeSize);
+    if (!chipPass.length) {
+      // 第 ⑤ 层全灭有两种截然不同的原因，UI 必须能区分：
+      //  a) 换手率拿不到 → 筹码分布完全失效，是数据问题
+      //  b) 换手率正常但没股票达标 → 是市场/阈值问题，给出最接近的候选与放宽建议
+      if (!turnoverAvailable) {
+        return {
+          ...done(t0, stages, universeSize),
+          error: '筹码分布需要每日换手率，但当前无法获取。'
+            + '请在「漏斗 → 参数 → 换手率数据源」配置代理地址后重试。',
+          turnoverSource: 'none',
+        };
+      }
+      // 附上被拒标的的实测值，用户能自行判断该放宽哪一项
+      const near = vcpPass.slice(0, 8).map((f) => {
+        const bars = klineMap.get(f.stock.symbol);
+        const turn = turnoverMap.get(f.stock.symbol);
+        const bb = turn ? attachTurnover(bars, turn) : bars;
+        const ch = ChipDistribution.build(bb, {
+          lookback: cfg.chipLookback, binCount: cfg.chipBins,
+        });
+        const q = quoteMap.get(f.stock.symbol);
+        return {
+          symbol: f.stock.symbol,
+          name: q?.name || f.stock.code,
+          price: q?.price ?? 0,
+          concentration: ch.concentrationP(0.9),
+          profitRatio: ch.profitRatio(q?.price ?? bb[bb.length - 1]?.close ?? 0),
+          notes: f.notes,
+        };
+      });
+      return {
+        ...done(t0, stages, universeSize),
+        turnoverSource: turnoverMap.size > 0 ? 'sohu' : 'inferred',
+        noMatch: true,
+        blockedStage: 'chip',
+        nearMiss: near,
+        error: `第 ⑤ 层（筹码集中）无标的达标。`
+          + `本次 ${vcpPass.length} 只候选全部被拒 —— `
+          + `当前 A 股符合「趋势+基本面+RS+VCP 四层」形态的标的本就稀少，`
+          + `再叠加 90% 筹码集中度 < ${(cfg.concentration90Max * 100).toFixed(0)}% 后归零。`
+          + `可在「参数」中切到「宽松」档位，或手动放宽集中度阈值。`,
+      };
+    }
 
     // ==================== ⑥ 枢轴放量突破 ====================
     const pivotPass = [];
@@ -225,7 +281,10 @@ export async function runFunnel(cfg, onProgress, signal) {
 
     return {
       stages, startedAt: t0, finishedAt: Date.now(),
-      universeSize, signals, turnoverAvailable: turnoverMap.size > 0,
+      universeSize, signals,
+      // 真实换手率来源：优先搜狐代理，其次本地反推
+      turnoverAvailable: turnoverAvailable || turnoverMap.size > 0,
+      turnoverSource: turnoverMap.size > 0 ? 'sohu' : (turnoverAvailable ? 'inferred' : 'none'),
     };
   } catch (e) {
     console.error('[funnel]', e);

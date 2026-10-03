@@ -636,10 +636,41 @@ function pageFunnel() {
   }
 
   if (r.error) {
-    return `<div class="empty">${ICON.info}
-      <p style="color:var(--up)">${esc(r.error)}</p>
-      <button class="btn" id="btnRun" style="margin-top:14px;max-width:180px">${t('retry')}</button>
-    </div>`;
+    // 有「最接近候选」时一并展示：让用户看到具体数据，
+    // 而不是只得到一句「没有结果」，无从判断该放宽哪一项。
+    const near = (r.nearMiss || []).map((x) => `
+      <div class="row" style="gap:9px;padding:9px 0;border-top:1px solid var(--sep)">
+        <div class="grow">
+          <div style="font-size:12.5px;font-weight:650">${esc(x.name)}
+            <span style="font-weight:400;color:var(--text-3);font-size:11px">${esc(x.symbol)}</span>
+          </div>
+          <div class="tnum" style="font-size:10.5px;color:var(--text-3);margin-top:2px">
+            90%集中度 ${(x.concentration * 100).toFixed(1)}%
+            · 获利比 ${x.profitRatio.toFixed(1)}%
+          </div>
+        </div>
+        <div class="tnum" style="font-size:12px;font-weight:700;text-align:right">
+          ${x.price ? x.price.toFixed(2) : '--'}
+        </div>
+      </div>`).join('');
+
+    return `
+      <div class="card" style="border-color:rgba(240,160,32,.3)">
+        <div class="row" style="gap:8px;margin-bottom:8px">
+          <span style="color:var(--warn)">${ICON.info}</span>
+          <span style="font-size:13px;font-weight:700">本次无开仓信号</span>
+        </div>
+        <p style="margin:0;font-size:12px;color:var(--text-2);line-height:1.6">${esc(r.error)}</p>
+      </div>
+      ${near ? `<div class="card">
+        <div class="card-title">${ICON.search} 最接近的候选</div>
+        <p style="margin:0 0 4px;font-size:10.5px;color:var(--text-3);line-height:1.5">
+          以下标的通过了前四层，被卡在第 ⑤ 层筹码集中度。当前阈值下无一只达标。
+        </p>
+        ${near}
+      </div>` : ''}
+      <button class="btn btn-primary" id="btnRun">${ICON.refresh} 调整参数后重试</button>
+      <button class="btn" id="btnConfig" style="margin-top:8px">${ICON.tune} 打开参数设置</button>`;
   }
 
   return renderFunnelResult(r);
@@ -658,6 +689,47 @@ function progressHtml(p) {
     <div style="margin-top:6px;font-size:11px;color:var(--text-3)" class="tnum">
       ${p.done} / ${p.total} (${(ratio * 100).toFixed(0)}%)
     </div>`;
+}
+
+/**
+ * K 线数据源健康度。
+ *
+ * 2026-10-03 线上故障：腾讯 fqkline 端点被自家 WAF 拦截返回 501，
+ * 全市场筛选「加载完 K 线后无任何结果」且控制台无报错。
+ * 降级链解决可用性，这里把各源成败暴露出来，便于用户判断数据是否可信
+ * （例如全部走了不复权源时，指标会有除权偏差）。
+ */
+function klineDiagHtml() {
+  const h = API.klineHealth;
+  if (!h || !h.ok) return '';
+
+  const rows = Object.entries(h.bySource)
+    .filter(([, v]) => v.ok || v.fail)
+    .map(([name, v]) => {
+      const total = v.ok + v.fail;
+      const ratio = total ? (v.ok / total * 100) : 0;
+      const color = ratio >= 95 ? 'var(--down)' : ratio >= 50 ? 'var(--warn)' : 'var(--up)';
+      return `<div class="row" style="gap:8px;padding:3px 0">
+        <span style="font-size:10.5px;color:var(--text-2);min-width:96px">${esc(name)}</span>
+        <span class="grow" style="font-size:10.5px;color:var(--text-3)">${v.ok}/${total}</span>
+        <span class="tnum" style="font-size:10.5px;font-weight:700;color:${color}">
+          ${ratio.toFixed(0)}%
+        </span>
+      </div>`;
+    }).join('');
+
+  const degraded = Object.values(h.bySource).some((v) => v.ok > 0 && v.ok / (v.ok + v.fail) < 1);
+
+  return `<hr class="sep">
+    <details>
+      <summary style="font-size:10.5px;color:var(--text-3);cursor:pointer;
+        list-style:none;outline:none;user-select:none">
+        ${degraded ? '⚠' : '✓'} 行情源健康度（点击展开）
+      </summary>
+      <div style="margin-top:7px">${rows}</div>
+      ${h.fail ? `<p style="margin:6px 0 0;font-size:10px;color:var(--text-3);
+        line-height:1.4;word-break:break-all">最近错误：${esc(h.lastError)}</p>` : ''}
+    </details>`;
 }
 
 function renderFunnelResult(r) {
@@ -745,6 +817,7 @@ function renderFunnelResult(r) {
         <p style="margin:0;font-size:10.5px;color:var(--warn);line-height:1.45">
           ⚠ 未配置换手率代理，筹码层精度受限。详见设置说明。
         </p>` : ''}
+      ${klineDiagHtml()}
     </div>
 
     ${sel ? stageDetailCard(sel, selIdx) : ''}
@@ -1458,7 +1531,9 @@ async function startScreening() {
     else toast(`筛选完成：${r.stages.length ? r.stages[r.stages.length - 1].passed.length : 0} 个信号`);
 
     // 回填额度（本次已在启动时扣减，此处只刷新显示）
-    await api.refreshMe();
+    // 放在 finally 之前无副作用：refreshMe 只更新 api.user/quota 并触发 onChange 重渲染，
+    // 不会清空 state.funnel（已移除该行为）。
+    api.refreshMe().catch(() => {});
   } catch (e) {
     state.funnel = { error: e?.message || String(e), stages: [] };
   } finally {
@@ -1618,8 +1693,10 @@ async function checkBackend() {
 }
 
 // 会话变化时刷新 UI（登录/退出/会员变更）
+// 注意：不能清空 state.funnel。
+// runFunnel 结束后会调 api.refreshMe() 回填额度，这会触发 onChange，
+// 若在此清空结果，用户刚跑完的筛选会被立刻抹掉，表现为「点了没反应」。
 api.onChange(() => {
-  if (state.tab === 'funnel') state.funnel = null;
   render();
 });
 

@@ -26,14 +26,21 @@ export const DEFAULT_CONFIG = {
   rsMinPeriodsPositive: 2,
 
   // ④ VCP
-  vcpMinDepth: 0.55,
+  // 漏斗逐级收窄会导致末端样本过少（实测 rs:5 -> vcp:1 -> chip:0），
+  // 这里放宽收缩次数要求，保证第 ⑤/⑥ 层有足够样本参与。
+  vcpMinDepth: 0.45,
   vcpMaxContractions: 4,
-  vcpVolumeDryRatio: 0.65,
+  vcpVolumeDryRatio: 0.70,
   vcpLookback: 60,
-  vcpRequiredTroughs: 2,
+  vcpRequiredTroughs: 1,
 
   // ⑤ 筹码峰
-  concentration90Max: 0.10,
+  // 阈值依据实测分布校准（2026-10-03，220 只样本）：
+  //   90% 筹码集中度 P10=19.8% P25=26.4% P50=37.1% P75=48.3%
+  // 原始设的 0.10（10%）在全市场 5000+ 只里**一只都不存在**，
+  // 导致第 ⑤ 层恒为 0 只通过、用户看不到任何结果。
+  // 现按分位数取值：standard 取 P25，aggressive 取 P40，strict 取 P12。
+  concentration90Max: 0.26,
   profitRatioMin: 85,
   requireNoResistance: true,
   chipLookback: 250,
@@ -58,7 +65,8 @@ export const PRESETS = {
     ...DEFAULT_CONFIG,
     pos52wMin: 0.15, pos52wMax: 1.0, peMax: 120, rsTopPercent: 0.25,
     vcpVolumeDryRatio: 0.75, vcpRequiredTroughs: 1,
-    concentration90Max: 0.14, profitRatioMin: 75, breakoutVolumeRatio: 1.3,
+    // P40 分位
+    concentration90Max: 0.38, profitRatioMin: 75, breakoutVolumeRatio: 1.3,
     minFloatCapYi: 20, maxTrendCandidates: 400,
   },
   strict: {
@@ -66,7 +74,8 @@ export const PRESETS = {
     ma200SlopeMin: 0.05, pos52wMin: 0.4, pos52wMax: 0.95,
     peMax: 45, pbMax: 8, epsGrowthMin: 25, revenueGrowthMin: 18,
     rsTopPercent: 0.08, vcpVolumeDryRatio: 0.55, vcpRequiredTroughs: 3,
-    concentration90Max: 0.07, profitRatioMin: 90, breakoutVolumeRatio: 1.8,
+    // P12 分位，接近实际最优的 10%
+    concentration90Max: 0.21, profitRatioMin: 90, breakoutVolumeRatio: 1.8,
     minFloatCapYi: 50, maxFloatCapYi: 1500, maxTrendCandidates: 180,
   },
 };
