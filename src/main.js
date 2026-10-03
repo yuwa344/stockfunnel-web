@@ -38,6 +38,7 @@ const state = {
   searchKw: '',
   searchApi: null,      // 服务端搜索结果
   searching: false,
+  backendOk: null,      // null=未检测 false=不可达
   detail: null,
   configOpen: false,
 };
@@ -92,6 +93,7 @@ document.getElementById('ambient').innerHTML =
   '<div class="amb-2"></div><div class="amb-3"></div>';
 
 render();
+checkBackend();
 
 /* ---------------- 渲染 ---------------- */
 
@@ -139,10 +141,17 @@ function subtitleOf(tab) {
 }
 
 function actionButtons() {
+  // 后端连通状态点：灰=未检测 绿=正常 红=不可达
+  const dot = state.backendOk === null
+    ? `<span class="net-dot" title="后端检测中"></span>`
+    : state.backendOk
+      ? `<span class="net-dot ok" title="后端正常"></span>`
+      : `<span class="net-dot bad" title="后端不可达"><button class="net-fix" id="btnNetFix">?</button></span>`;
+
   if (state.tab === 'detail') {
-    return `<button class="btn btn-icon" id="btnBack" aria-label="返回">${ICON.back}</button>`;
+    return dot + `<button class="btn btn-icon" id="btnBack" aria-label="返回">${ICON.back}</button>`;
   }
-  let html = '';
+  let html = dot;
   if (state.tab === 'watchlist') {
     html += accountChip();
     html += `<button class="btn btn-icon" id="btnTheme" aria-label="切换主题">${isDark() ? ICON.sun : ICON.moon}</button>`;
@@ -901,6 +910,21 @@ function bindEvents() {
   const loginBtn = document.getElementById('btnLogin');
   if (loginBtn) loginBtn.onclick = () => openAuthSheetWrap();
 
+  // 后端不可达时的手动修复入口
+  const netFix = document.getElementById('btnNetFix');
+  if (netFix) netFix.onclick = () => {
+    const cur = localStorage.getItem('sf_api') || '';
+    const v = prompt(
+      '后端地址（留空表示同源 /api，由 Pages 边缘代理）\n' +
+      '例如 https://stockfunnel.kongchris655.workers.dev',
+      cur
+    );
+    if (v === null) return;
+    if (v.trim()) localStorage.setItem('sf_api', v.trim().replace(/\/+$/, ''));
+    else localStorage.removeItem('sf_api');
+    checkBackend();
+  };
+
   // 账号菜单
   const accBtn = document.getElementById('btnAccount');
   if (accBtn) accBtn.onclick = () => openAccountSheet(() => render());
@@ -1575,6 +1599,23 @@ api.refreshMe().then((u) => {
     render();
   }
 }).catch(() => render());
+
+/**
+ * 后端连通性检测。
+ * 若前端在 pages.dev 而 /api 代理未生效，这里会失败，
+ * 用户就能明确看到「后端不可达」而不是一堆空白页面。
+ */
+async function checkBackend() {
+  try {
+    const res = await fetch('/api/health', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.backendOk = true;
+  } catch (e) {
+    state.backendOk = false;
+    console.warn('[backend] 不可达', e);
+  }
+  render();
+}
 
 // 会话变化时刷新 UI（登录/退出/会员变更）
 api.onChange(() => {

@@ -1,9 +1,18 @@
 /**
  * 后端 API 客户端
  * ------------------------------------------------------------------
- * 与 Worker 同域，因此所有请求都是相对路径，无 CORS 问题。
- * 鉴权用 Bearer token（存内存 + localStorage 持久化）。
+ * 默认走**同源相对路径**：部署在 Cloudflare Pages 时，
+ * /api/* 会被 functions/api/[[path]].js 代理到真实 Worker。
+ *
+ * 好处：用户浏览器从不需要直连 workers.dev（该域名在大陆被阻断）。
+ *
+ * 如需直连（例如本地调试 Pages 时代理不通），可设置：
+ *   localStorage.setItem('sf_api', 'https://xxx.workers.dev')
  */
+function getApiBase() {
+  try { return localStorage.getItem('sf_api') || ''; }
+  catch { return ''; }
+}
 
 const TOKEN_KEY = 'sf_token';
 
@@ -42,14 +51,28 @@ export class Api {
     writeToken(t);
   }
 
+  /**
+   * 统一请求入口。
+   *
+   * path 传**不含** /api 前缀的路径（如 '/search?q=x'），前缀在这里补。
+   *
+   * 为什么必须这样：部署在 Pages 时，/api/* 交给 functions/api/[[path]].js
+   * 代理到 Worker；Pages 不像 Worker 那样自动剥离 /api 前缀，
+   * 若这里不补，请求会打到静态资源 /search → 返回 index.html（HTML），
+   * 导致 res.json() 失败 → data 为 null。
+   */
   async _req(path, { method = 'GET', body, auth = true } = {}) {
     const headers = {};
     if (body != null) headers['Content-Type'] = 'application/json';
     if (auth && this.token) headers['Authorization'] = `Bearer ${this.token}`;
 
+    const base = getApiBase();
+    const rel = path.startsWith('/') ? path : '/' + path;
+    const url = base ? base + '/api' + rel : '/api' + rel;
+
     let res;
     try {
-      res = await fetch(`/api${path}`, {
+      res = await fetch(url, {
         method,
         headers,
         body: body != null ? JSON.stringify(body) : undefined,

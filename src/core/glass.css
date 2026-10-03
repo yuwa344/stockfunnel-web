@@ -696,3 +696,43 @@ input[type='range']::-moz-range-thumb {
   width: 1.25em !important;
   height: 1.25em !important;
 }
+
+/* ==================== 后端连通状态指示 ==================== */
+
+.net-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-3);
+  opacity: 0.35;
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
+.net-dot.ok {
+  background: var(--down);
+  opacity: 1;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--down) 55%, transparent);
+}
+.net-dot.bad {
+  background: var(--up);
+  opacity: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.net-fix {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0;
+}

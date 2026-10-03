@@ -23,6 +23,7 @@ const INCLUDE = [
   'sw.js',
   'src',
   'assets',
+  'functions',        // Pages Functions（API 边缘代理）
 ];
 
 async function copyIfExists(name) {
@@ -64,6 +65,9 @@ async function main() {
     }
   }
   await collect(path.join(ROOT, 'src'));
+  // Pages Functions 也要检查
+  const fnDir = path.join(ROOT, 'functions');
+  if (existsSync(fnDir)) await collect(fnDir);
 
   let badSyntax = 0;
   for (const f of files) {
