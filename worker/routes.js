@@ -25,6 +25,7 @@
  */
 
 import { Auth, isVipActive, httpErr, publicUser } from './auth.js';
+import { searchStocks } from './search.js';
 
 const FREE_DAILY_LIMIT = 3;
 const VIP_DAILY_LIMIT = 50;
@@ -38,6 +39,15 @@ export const Api = {
       // ---------- 公开 ----------
       if (path === '/health') {
         return json({ ok: true, ts: Date.now() });
+      }
+
+      // 股票搜索：服务端代理（新浪/腾讯均无 CORS 头，浏览器无法直连）
+      if (path === '/search' && req.method === 'GET') {
+        const q = url.searchParams.get('q') || '';
+        const limit = Math.min(30, parseInt(url.searchParams.get('limit') || '20', 10));
+        const market = url.searchParams.get('market') || '';
+        const items = await searchStocks(q, { limit, market });
+        return json({ items, query: q, source: 'sina+tencent' });
       }
 
       if (path === '/auth/register' && req.method === 'POST') {

@@ -36,6 +36,8 @@ const state = {
   selectedStage: -1,
   universeReady: false,
   searchKw: '',
+  searchApi: null,      // 服务端搜索结果
+  searching: false,
   detail: null,
   configOpen: false,
 };
@@ -273,12 +275,12 @@ function pageWatchlist() {
 /* ---------------- 页面：搜索 ---------------- */
 
 function pageSearch() {
-  // 速查表（内置，立即可用）+ 全市场索引（后台建立后补充）
-  const seenSym = new Set();
+  // 主路径：服务端 API 搜索（覆盖全部 A 股，名称实时）
+  // 兜底：内置速查表（离线/接口失败时仍可用）
+  const api = state.searchApi || [];
   const quick = state.searchKw ? quickSearch(state.searchKw, 20) : [];
-  const full = state.searchKw && state.universeReady
-    ? universeIndex.search(state.searchKw, 20) : [];
-  const results = quick.concat(full).filter((s) => {
+  const seenSym = new Set();
+  const results = api.concat(quick).filter((s) => {
     if (seenSym.has(s.symbol)) return false;
     seenSym.add(s.symbol);
     return true;
@@ -286,21 +288,17 @@ function pageSearch() {
   let bodyHtml;
 
   if (state.searchKw && !results.length) {
-    const hint = state.universeReady
-      ? '完整代码表已建立'
-      : '完整代码表建立中，可稍后再试';
-    bodyHtml = `<div class="empty">
-      ${ICON.search}
-      <p>未找到「${esc(state.searchKw)}」相关标的</p>
-      <p style="font-size:11px">内置速查表 ${COMMON_COUNT} 只；${hint}</p>
-    </div>`;
+    if (state.searching) {
+      bodyHtml = `<div class="empty">${ICON.search}<p>搜索中…</p></div>`;
+    } else {
+      bodyHtml = `<div class="empty">
+        ${ICON.search}
+        <p>未找到「${esc(state.searchKw)}」相关标的</p>
+        <p style="font-size:11px">可尝试输入 6 位代码，或中文名 / 拼音首字母</p>
+      </div>`;
+    }
   } else if (!state.searchKw) {
     const presets = ['600519', '300750', '000858', '601318', '688981', '002594'];
-    const uniInfo = state.universeReady
-      ? `已建立 ${getUniverse()?.length ?? 0} 只 A 股本地索引，搜索已覆盖全市场。`
-      : state.building
-        ? `正在建立全市场索引… ${state.progress?.message || ''}`
-        : '内置速查表立即可用；全市场索引可手动建立。';
     bodyHtml = `
       <div class="card">
         <div class="card-title">${ICON.search} 试试搜索</div>
@@ -309,14 +307,14 @@ function pageSearch() {
         </div>
       </div>
       <div class="card">
-        <div class="card-title">${ICON.info} 搜索范围</div>
+        <div class="card-title">${ICON.info} 搜索说明</div>
         <p style="margin:0 0 10px;font-size:12.5px;color:var(--text-2);line-height:1.55">
-          内置 <b>${COMMON_COUNT}</b> 只常用股票速查表，支持代码与中文名，立即可用。
+          搜索走<b>实时接口</b>，覆盖全部 A 股（约 5400 只），名称与 ST 状态实时同步。
+          支持 6 位代码、中文名、拼音首字母。
         </p>
-        <div id="uniBox">
-          <p style="margin:0;font-size:12px;color:var(--text-3);line-height:1.5" id="uniLabel">${uniInfo}</p>
-        </div>
-        ${state.universeReady ? '' : `<button class="btn btn-icon" id="btnBuildIndex2" aria-label="建立">${ICON.play}</button>`}
+        <p style="margin:0;font-size:11.5px;color:var(--text-3);line-height:1.5">
+          另内置 <b>${COMMON_COUNT}</b> 只常用股票速查表作为离线兜底，接口不可用时仍可搜索。
+        </p>
       </div>`;
   } else {
     bodyHtml = results.map((s) => {
@@ -875,15 +873,14 @@ function bindEvents() {
   const searchInput = document.getElementById('searchInput');
   if (searchInput) {
     searchInput.oninput = debounce((e) => {
-      state.searchKw = e.target.value;
-      const pos = e.target.selectionStart;
-      render();
-      const ni = document.getElementById('searchInput');
-      if (ni) { ni.focus(); ni.setSelectionRange(pos, pos); }
-    }, 220);
+      const kw = e.target.value;
+      state.searchKw = kw;
+      // 服务端搜索（覆盖全市场，名称实时）
+      doSearch(kw);
+    }, 280);
   }
   document.querySelectorAll('[data-kw]').forEach((b) => {
-    b.onclick = () => { state.searchKw = b.dataset.kw; render(); };
+    b.onclick = () => { state.searchKw = b.dataset.kw; doSearch(b.dataset.kw); };
   });
   document.querySelectorAll('[data-star]').forEach((b) => {
     b.onclick = (e) => {
@@ -918,8 +915,6 @@ function bindEvents() {
   // 建立索引
   const buildBtn = document.getElementById('btnBuildIndex');
   if (buildBtn) buildBtn.onclick = () => ensureUniverse();
-  const buildBtn2 = document.getElementById('btnBuildIndex2');
-  if (buildBtn2) buildBtn2.onclick = () => ensureUniverse();
 
   // 筛选
   const runBtn = document.getElementById('btnRun');
@@ -1240,6 +1235,53 @@ async function quickAnalyze(symbol) {
   } catch (e) {
     body.innerHTML = `<p style="text-align:center;color:var(--up);font-size:12.5px;padding:20px">
       分析失败：${esc(e.message || e)}</p>`;
+  }
+}
+
+/**
+ * 股票搜索。
+ *
+ * 主路径：服务端 /api/search（Worker 代理新浪 suggest3 / 腾讯 smartbox，
+ *        覆盖全部 A 股，名称与 ST 状态实时）。
+ * 兜底：内置速查表 quickSearch（离线或接口失败时）。
+ */
+async function doSearch(kw) {
+  const q = String(kw || '').trim();
+
+  if (!q) {
+    state.searchApi = null;
+    state.searching = false;
+    render();
+    return;
+  }
+
+  state.searching = true;
+  render();
+  // 保持输入焦点与光标
+  const keepFocus = () => {
+    const ni = document.getElementById('searchInput');
+    if (ni) {
+      const pos = ni.value.length;
+      ni.focus();
+      ni.setSelectionRange(pos, pos);
+    }
+  };
+  keepFocus();
+
+  try {
+    const r = await api.search(q, 20);
+    // 竞态保护：用户可能已经继续输入
+    if (state.searchKw.trim() !== q) return;
+    state.searchApi = r.items || [];
+  } catch (e) {
+    console.warn('[search]', e);
+    state.searchApi = null;   // 回退到速查表
+  } finally {
+    if (state.searchKw.trim() === q) {
+      state.searching = false;
+      render();
+      keepFocus();
+    }
   }
 }
 

@@ -138,6 +138,19 @@ export class Api {
     return !!this.user?.isAdmin;
   }
 
+  /* ---------------- 搜索 ---------------- */
+
+  /**
+   * 股票搜索（服务端代理新浪/腾讯，覆盖全市场，名称实时）。
+   * 游客也可用 —— 搜索是基础功能，不应要求登录。
+   */
+  async search(q, limit = 20, market = '') {
+    const qs = new URLSearchParams({ q, limit: String(limit) });
+    if (market) qs.set('market', market);
+    const r = await this._req(`/search?${qs}`, { auth: false });
+    return r;
+  }
+
   /* ---------------- 自选 ---------------- */
 
   async listWatchlist() {
