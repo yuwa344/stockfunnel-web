@@ -82,6 +82,7 @@ echo    db      Create the D1 database
 echo    init    Create tables in D1
 echo    go      Create DB, init tables, then deploy
 echo    admin   Create an admin account
+echo    pages   Deploy frontend to Cloudflare Pages (China-accessible)
 echo    domain  How to bind a custom domain (avoids workers.dev block)
 echo    proxy   How to deploy the turnover proxy Worker
 echo.
@@ -210,6 +211,36 @@ exit /b 0
 echo  No SQL entered.  Nothing was changed.
 pause
 exit /b 1
+
+REM ============================================================
+:pages
+echo  Deploying frontend to Cloudflare Pages (China-accessible) ...
+echo.
+echo  Why Pages: workers.dev is blocked in mainland China,
+echo  but pages.dev is reachable. Users only talk to pages.dev;
+echo  the /api/* edge proxy forwards to the Worker.
+echo.
+echo  Step 1: build static assets into public/
+call node scripts\build-assets.js
+if errorlevel 1 (
+  echo  Build failed. Fix and retry.
+  pause
+  exit /b 1
+)
+echo.
+echo  Step 2: create the Pages project (skip if it exists)
+call npx --no-install wrangler pages project create stockfunnel --production-branch main
+echo.
+echo  Step 3: deploy
+call npx --no-install wrangler pages deploy public --project-name stockfunnel --branch main
+echo.
+echo  ==========================================
+echo   Frontend live at:
+echo     https://stockfunnel.pages.dev
+echo  ==========================================
+echo.
+pause
+exit /b 0
 
 REM ============================================================
 :domain

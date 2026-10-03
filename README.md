@@ -2,10 +2,13 @@
 
 跨端 Web 应用。Liquid Glass 视觉，色调跟随系统，iOS/Android 均可安装到桌面。
 
-> **访问地址**：`https://stockfunnel.kongchris655.workers.dev`
+> ## 访问地址
 >
-> ⚠️ `workers.dev` 在中国大陆被 DNS 污染，**需挂 VPN**。
-> 绑定自定义域名即可直连，步骤见 [DOMAIN.md](./DOMAIN.md)（不需要 ICP 备案）。
+> **https://stockfunnel.pages.dev** ← 国内可直连，无需 VPN
+>
+> 后端 Worker（`workers.dev`）在大陆被阻断，**用户浏览器从不直连它**：
+> Pages 的边缘函数 `/api/*` 会把请求代理到 Worker。
+> 右上角状态点：绿=后端正常，红=不可达（点击可手动设置后端地址）。
 
 ## 六层筛选漏斗
 
@@ -101,11 +104,13 @@ python -m http.server 8899
 ├── manifest.webmanifest
 ├── sw.js                    Service Worker（离线壳缓存）
 ├── schema.sql               D1 表结构
-├── wrangler.toml
+├── wrangler.toml            Worker 配置
+├── functions/api/[[path]].js Pages 边缘代理（/api/* → Worker）
 ├── workers/proxy.js         换手率 CORS 代理（可选部署）
-├── worker/                  后端
+├── worker/                  后端（部署在 Workers）
 │   ├── index.js             入口：静态资源 + API 路由分发
 │   ├── auth.js              PBKDF2 + 会话管理
+│   ├── search.js            股票搜索（新浪/腾讯代理）
 │   └── routes.js            REST API + 会员门控 + Admin
 ├── src/
 │   ├── core/                glass.css / utils / install / api-client
@@ -115,6 +120,70 @@ python -m http.server 8899
 │   └── main.js              应用入口与页面渲染
 └── assets/                  图标
 ```
+
+## 部署架构
+
+```
+                  国内直连
+浏览器 ─────────────────────────► Cloudflare Pages
+                                    stockfunnel.pages.dev
+                                      ├─ /            静态资源
+                                      └─ /api/*        functions/api/[[path]].js
+                                                        （边缘代理，透传一切）
+                                                              │
+                                                              ▼
+                                              Cloudflare Worker
+                                    stockfunnel.kongchris655.workers.dev
+                                      ├─ /api/auth/*   注册登录（PBKDF2）
+                                      ├─ /api/search   股票搜索（新浪/腾讯）
+                                      ├─ /api/watchlist 云端自选
+                                      ├─ /api/screen   VIP 门控 + 额度
+                                      ├─ /api/admin/*  管理后台
+                                      └─ D1 (SQLite)   users/sessions/watchlist/...
+```
+
+**为什么分两层**：实测 `workers.dev` 在大陆被 DNS 污染 + IP/SNI 阻断，
+`pages.dev` / `netlify.app` / `surge.sh` / `deno.dev` 可直连（`vercel.app` 与
+`github.io` 同样被阻断）。把前端放 Pages、后端留 Worker，用户只跟可直连的域名打交道。
+
+## 部署
+
+```bash
+# 1. 登录（需浏览器授权）
+wrangler login
+
+# 2. 创建 D1
+wrangler d1 create stockfunnel
+#   把返回的 database_id 填入 wrangler.toml
+
+# 3. 初始化表结构（注意 --remote，否则只作用于本地实例）
+wrangler d1 execute stockfunnel --remote --file=./schema.sql
+
+# 4. 部署后端 Worker
+node scripts/build-assets.js
+wrangler deploy
+
+# 5. 创建管理员
+node scripts/create-admin.js admin 你的密码
+#   复制输出的 sql 执行：
+wrangler d1 execute stockfunnel --remote --command "<粘贴的 SQL>"
+
+# 6. 部署前端 Pages（含边缘代理）
+wrangler pages project create stockfunnel --production-branch main
+wrangler pages deploy public --project-name stockfunnel --branch main
+```
+
+Windows 用户可直接用 `deploy.bat`（`login` / `db` / `init` / `go` / `admin` / `domain` / `proxy`）。
+
+### 换手率代理（可选，提升筹码层精度）
+
+筹码分布模型需要历史每日换手率，来源 `q.stock.sohu.com` 无 CORS 头：
+
+1. Cloudflare Dashboard → Workers → Create
+2. 粘贴 `workers/proxy.js` → Deploy
+3. 应用内「漏斗 → 参数 → 换手率数据源」填入 `https://your-worker.workers.dev/?url=`
+
+未配置时应用照常运行，筹码层降级估算并在界面标注。
 
 ## 免责声明
 
