@@ -4,7 +4,7 @@
  */
 
 import * as API from './data/api.js';
-import { universeIndex } from './data/universe.js';
+import { universeIndex, quickSearch, COMMON_COUNT } from './data/universe.js';
 import { runFunnel, getUniverse, loadUniverse } from './domain/funnel.js';
 import { PRESETS, DEFAULT_CONFIG, STAGES, STAGE_DESC } from './domain/config.js';
 import { ChipDistribution } from './domain/chip.js';
@@ -273,21 +273,34 @@ function pageWatchlist() {
 /* ---------------- 页面：搜索 ---------------- */
 
 function pageSearch() {
-  const results = state.searchKw ? universeIndex.search(state.searchKw, 30) : [];
+  // 速查表（内置，立即可用）+ 全市场索引（后台建立后补充）
+  const seenSym = new Set();
+  const quick = state.searchKw ? quickSearch(state.searchKw, 20) : [];
+  const full = state.searchKw && state.universeReady
+    ? universeIndex.search(state.searchKw, 20) : [];
+  const results = quick.concat(full).filter((s) => {
+    if (seenSym.has(s.symbol)) return false;
+    seenSym.add(s.symbol);
+    return true;
+  }).slice(0, 30);
   let bodyHtml;
 
-  if (!state.universeReady) {
-    bodyHtml = `
-      <div class="empty">
-        <div class="spinner" style="margin:0 auto 12px;width:26px;height:26px"></div>
-        <p>${t('universeLoading')}</p>
-        <p>${t('universeHint')}</p>
-        <button class="btn" id="btnBuildIndex" style="margin-top:14px;max-width:200px">
-          ${ICON.play} 立即建立
-        </button>
-      </div>`;
+  if (state.searchKw && !results.length) {
+    const hint = state.universeReady
+      ? '完整代码表已建立'
+      : '完整代码表建立中，可稍后再试';
+    bodyHtml = `<div class="empty">
+      ${ICON.search}
+      <p>未找到「${esc(state.searchKw)}」相关标的</p>
+      <p style="font-size:11px">内置速查表 ${COMMON_COUNT} 只；${hint}</p>
+    </div>`;
   } else if (!state.searchKw) {
     const presets = ['600519', '300750', '000858', '601318', '688981', '002594'];
+    const uniInfo = state.universeReady
+      ? `已建立 ${getUniverse()?.length ?? 0} 只 A 股本地索引，搜索已覆盖全市场。`
+      : state.building
+        ? `正在建立全市场索引… ${state.progress?.message || ''}`
+        : '内置速查表立即可用；全市场索引可手动建立。';
     bodyHtml = `
       <div class="card">
         <div class="card-title">${ICON.search} 试试搜索</div>
@@ -296,17 +309,15 @@ function pageSearch() {
         </div>
       </div>
       <div class="card">
-        <div class="card-title">${ICON.info} 本地代码表</div>
-        <p style="margin:0;font-size:12.5px;color:var(--text-2);line-height:1.55">
-          已建立 <b class="tnum">${getUniverse()?.length ?? 0}</b> 只 A 股本地索引，
-          搜索完全在本地完成，不依赖外部搜索接口。
+        <div class="card-title">${ICON.info} 搜索范围</div>
+        <p style="margin:0 0 10px;font-size:12.5px;color:var(--text-2);line-height:1.55">
+          内置 <b>${COMMON_COUNT}</b> 只常用股票速查表，支持代码与中文名，立即可用。
         </p>
+        <div id="uniBox">
+          <p style="margin:0;font-size:12px;color:var(--text-3);line-height:1.5" id="uniLabel">${uniInfo}</p>
+        </div>
+        ${state.universeReady ? '' : `<button class="btn btn-icon" id="btnBuildIndex2" aria-label="建立">${ICON.play}</button>`}
       </div>`;
-  } else if (!results.length) {
-    bodyHtml = `<div class="empty">
-      ${ICON.search}
-      <p>未找到「${esc(state.searchKw)}」相关标的</p>
-    </div>`;
   } else {
     bodyHtml = results.map((s) => {
       const q = state.quotes.get(s.symbol);
@@ -907,6 +918,8 @@ function bindEvents() {
   // 建立索引
   const buildBtn = document.getElementById('btnBuildIndex');
   if (buildBtn) buildBtn.onclick = () => ensureUniverse();
+  const buildBtn2 = document.getElementById('btnBuildIndex2');
+  if (buildBtn2) buildBtn2.onclick = () => ensureUniverse();
 
   // 筛选
   const runBtn = document.getElementById('btnRun');
@@ -1304,7 +1317,16 @@ async function ensureUniverse() {
   try {
     await loadUniverse({
       force: true,
-      onProgress: (p) => { state.progress = p; render(); },
+      onProgress: (p) => {
+        state.progress = p;
+        // 有输入时只更新提示文字，避免重建 DOM 打断输入
+        const label = document.getElementById('uniLabel');
+        if (label) {
+          label.textContent = `正在建立全市场索引… ${p.message} (${p.done}/${p.total})`;
+        } else {
+          render();
+        }
+      },
     });
     state.universeReady = true;
     toast(`代码表就绪：${getUniverse()?.length ?? 0} 只`);
@@ -1485,7 +1507,8 @@ function onEnterTab() {
   if (state.tab === 'watchlist') {
     refreshQuotes();
   } else if (state.tab === 'search') {
-    if (!state.universeReady) ensureUniverse();
+    // 搜索页不自动建立全市场索引（实测枚举约 8 秒，但会让页面卡顿）
+    // 速查表已覆盖常用股票；需要全市场时点按钮手动建立
   } else if (state.tab === 'funnel') {
     if (!state.universeReady) ensureUniverse();
   }

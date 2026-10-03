@@ -51,6 +51,39 @@ async function dirSize(dir) {
 async function main() {
   console.log('Building static assets -> public/\n');
 
+  // 先做语法检查：Node 的 --check 对 .js 按 CommonJS 解析，
+  // 这里统一用 --input-type=module 走 stdin 才能检 ESM。
+  // 曾因未检查就把语法错误的 main.js 部署上线，页面直接白屏。
+  const { execFileSync } = await import('node:child_process');
+  const files = [];
+  async function collect(dir) {
+    for (const e of await readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) await collect(p);
+      else if (e.name.endsWith('.js')) files.push(p);
+    }
+  }
+  await collect(path.join(ROOT, 'src'));
+
+  let badSyntax = 0;
+  for (const f of files) {
+    const src = await (await import('node:fs/promises')).readFile(f, 'utf8');
+    try {
+      execFileSync(process.execPath,
+        ['--input-type=module', '--check'],
+        { input: src, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (e) {
+      badSyntax++;
+      console.error(`  SYNTAX ERROR  ${path.relative(ROOT, f)}`);
+      console.error('  ' + String(e.stderr || e.message).split('\n').slice(0, 4).join('\n  '));
+    }
+  }
+  if (badSyntax) {
+    console.error(`\n${badSyntax} file(s) failed syntax check. Fix before deploying.`);
+    process.exit(1);
+  }
+  console.log(`  syntax  ${files.length} files OK\n`);
+
   await rm(OUT, { recursive: true, force: true });
   await mkdir(OUT, { recursive: true });
 

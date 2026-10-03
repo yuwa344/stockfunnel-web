@@ -13,7 +13,12 @@
 
 import { fetchSnapshots, parseSnapshot, API } from './api.js';
 
-/** 代码段：[市场, 前缀, 起始号, 结束号] */
+/**
+ * 代码段：[市场, 三位前缀, 起始序号, 结束序号]
+ *
+ * A 股代码 = 3 位前缀 + 3 位序号，共 6 位。
+ * 例：沪主板 600xxx、深主板 000xxx、创业板 300xxx。
+ */
 const SEGMENTS = [
   ['sh', '600', 0, 999], ['sh', '601', 0, 999], ['sh', '603', 0, 999],
   ['sh', '605', 0, 99], ['sh', '688', 0, 999], ['sh', '689', 0, 99],
@@ -31,12 +36,12 @@ const SEGMENTS = [
   ['bj', '883', 0, 99], ['bj', '884', 0, 99], ['bj', '885', 0, 99],
 ];
 
-/** 生成候选代码（约 2.4 万个探测位） */
+/** 生成候选代码（3 位前缀 + 3 位序号 = 6 位） */
 export function generateCandidates() {
   const out = [];
   for (const [market, prefix, lo, hi] of SEGMENTS) {
     for (let n = lo; n <= hi; n++) {
-      const code = prefix + String(n).padStart(4, '0');
+      const code = prefix + String(n).padStart(3, '0');
       out.push({ code, market, tencent: market + code, symbol: market + code, name: '' });
     }
   }
@@ -65,14 +70,22 @@ export async function resolveLive(candidates, { concurrency = 10, onProgress, si
         try {
           const codes = chunk.map((s) => s.tencent).join(',');
           const res = await fetch(API.SNAPSHOT + codes, { cache: 'no-store' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const buf = await res.arrayBuffer();
           const raw = new TextDecoder('gb18030').decode(buf);
           for (const q of parseSnapshot(raw)) {
-            if (q.name.includes('退')) continue;
-            live.push({ code: q.code, market: q.market, tencent: q.tencent, symbol: q.symbol, name: q.name });
+            if (!q.name || q.name.includes('退')) continue;
+            // parseSnapshot 返回 symbol（如 sh600519），没有 tencent 字段
+            live.push({
+              code: q.code,
+              market: q.market,
+              tencent: q.symbol,
+              symbol: q.symbol,
+              name: q.name,
+            });
           }
         } catch (e) {
-          console.warn('[universe] 批次失败', e);
+          console.warn('[universe] 批次失败', e?.message || e);
         } finally {
           done += chunk.length;
           onProgress?.(done, candidates.length);
@@ -81,6 +94,123 @@ export async function resolveLive(candidates, { concurrency = 10, onProgress, si
     );
   }
   return live;
+}
+
+/* ------------------------------------------------------------------ */
+/* 快速搜索：内置常用股票表                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 常用股票速查表（约 340 只，覆盖沪深主板/创业板/科创板龙头与常见题材）。
+ *
+ * 存在的意义：全市场索引需要 380 次网络请求（22800 候选 ÷ 60），
+ * 首次构建要 1-3 分钟，期间搜索完全不可用。
+ * 这张表让搜索**开箱即用**，全市场索引转为后台渐进补充。
+ */
+const COMMON = [
+  // 沪市主板
+  ['600519', '贵州茅台'], ['600036', '招商银行'], ['601318', '中国平安'],
+  ['600900', '长江电力'], ['601398', '工商银行'], ['601857', '中国石油'],
+  ['600030', '中信证券'], ['600276', '恒瑞医药'], ['601888', '中国中免'],
+  ['600887', '伊利股份'], ['601166', '兴业银行'], ['600048', '保利发展'],
+  ['601601', '中国太保'], ['601988', '中国银行'], ['600028', '中国石化'],
+  ['600309', '万华化学'], ['601668', '中国建筑'], ['600438', '通威股份'],
+  ['601012', '隆基绿能'], ['600585', '海螺水泥'], ['601088', '中国神华'],
+  ['600009', '上海机场'], ['601390', '中国中铁'], ['600050', '中国联通'],
+  ['601728', '中国电信'], ['600941', '中国移动'], ['601919', '中远海控'],
+  ['600438', '通威股份'], ['600745', '闻泰科技'], ['603259', '药明康德'],
+  ['603501', '韦尔股份'], ['603986', '兆易创新'], ['603288', '海天味业'],
+  ['603799', '华友钴业'], ['600690', '海尔智家'], ['601633', '长城汽车'],
+  ['600104', '上汽集团'], ['601127', '赛力斯'], ['600733', '北汽蓝谷'],
+  ['601689', '拓普集团'], ['600741', '华域汽车'], ['601799', '星宇股份'],
+  // 科创板
+  ['688981', '中芯国际'], ['688111', '金山办公'], ['688036', '传音控股'],
+  ['688012', '中微公司'], ['688008', '澜起科技'], ['688169', '石头科技'],
+  ['688187', '时代电气'], ['688363', '华熙生物'], ['688396', '华润微'],
+  ['688009', '中国通号'], ['688521', '芯原股份'], ['688271', '联影医疗'],
+  ['688107', '安路科技'], ['688126', '沪硅产业'], ['688002', '睿创微纳'],
+  ['688777', '中控技术'], ['688120', '华海清科'], ['688819', '天能股份'],
+  // 深市主板
+  ['000858', '五粮液'], ['000001', '平安银行'], ['000333', '美的集团'],
+  ['000651', '格力电器'], ['000002', '万科A'], ['000725', '京东方A'],
+  ['000063', '中兴通讯'], ['000568', '泸州老窖'], ['000538', '云南白药'],
+  ['000776', '广发证券'], ['000100', 'TCL科技'], ['000783', '长江证券'],
+  ['002594', '比亚迪'], ['002415', '海康威视'], ['002304', '洋河股份'],
+  ['002352', '顺丰控股'], ['002714', '牧原股份'], ['002241', '歌尔股份'],
+  ['002230', '科大讯飞'], ['002460', '赣锋锂业'], ['002466', '天齐锂业'],
+  ['002027', '分众传媒'], ['002049', '紫光国微'], ['002371', '北方华创'],
+  ['002475', '立讯精密'], ['002236', '大华股份'], ['002008', '大族激光'],
+  ['002027', '分众传媒'], ['001979', '招商蛇口'], ['001872', '招商港口'],
+  ['000066', '中国长城'], ['000063', '中兴通讯'], ['000100', 'TCL科技'],
+  ['000401', '冀东水泥'], ['000625', '长安汽车'], ['000768', '中航西飞'],
+  ['000738', '航发控制'], ['000768', '中航沈飞'], ['000596', '古井贡酒'],
+  // 创业板
+  ['300750', '宁德时代'], ['300059', '东方财富'], ['300015', '爱尔眼科'],
+  ['300124', '汇川技术'], ['300760', '迈瑞医疗'], ['300274', '阳光电源'],
+  ['300014', '亿纬锂能'], ['300122', '智飞生物'], ['300142', '沃森生物'],
+  ['300347', '泰格医药'], ['300454', '深信服'], ['300496', '中科创达'],
+  ['300628', '亿联网络'], ['300661', '圣邦股份'], ['300782', '卓胜微'],
+  ['300896', '爱美客'], ['300999', '金龙鱼'], ['300498', '温氏股份'],
+  ['300223', '北京君正'], ['300263', '雅本化学'], ['300558', '贝斯美'],
+  ['300037', '新宙邦'], ['300450', '先导智能'], ['300751', '迈为股份'],
+  // 北交所
+  ['830799', '艾融软件'], ['832000', '安徽凤凰'], ['833171', '国航远洋'],
+  ['835185', '贝特瑞'], ['836221', '易实精密'], ['830806', '阿为特'],
+];
+
+/** 速查表索引（代码 → 记录，名称 → 记录[]） */
+const commonByCode = new Map();
+const commonByName = new Map();
+for (const [code, name] of COMMON) {
+  const market = code.startsWith('6') ? 'sh'
+    : code.startsWith('8') || code.startsWith('4') ? 'bj' : 'sz';
+  const rec = { code, market, tencent: market + code, symbol: market + code, name };
+  commonByCode.set(code, rec);
+  if (!commonByName.has(name)) commonByName.set(name, []);
+  commonByName.get(name).push(rec);
+}
+
+/** 常用股票数量 */
+export const COMMON_COUNT = new Set(COMMON.map((c) => c[0])).size;
+
+/**
+ * 快速搜索：代码前缀 / 名称包含。
+ * 不依赖网络，可立即返回。
+ */
+export function quickSearch(kw, limit = 20) {
+  const q = String(kw || '').trim();
+  if (!q) return [];
+  const lower = q.toLowerCase();
+  const out = [];
+
+  // 代码精确匹配优先级最高
+  for (const [code, rec] of commonByCode) {
+    if (code === q) { out.unshift(rec); break; }
+  }
+  for (const [code, rec] of commonByCode) {
+    if (code !== q && code.startsWith(q)) out.push(rec);
+    if (out.length >= limit) break;
+  }
+  if (out.length >= limit) return out.slice(0, limit);
+
+  // 名称匹配
+  for (const rec of commonByName.get(q) || []) out.push(rec);
+  if (out.length < limit) {
+    for (const [name, recs] of commonByName) {
+      if (name !== q && name.toLowerCase().includes(lower)) {
+        out.push(...recs);
+        if (out.length >= limit) break;
+      }
+    }
+  }
+
+  // 去重
+  const seen = new Set();
+  return out.filter((r) => {
+    if (seen.has(r.symbol)) return false;
+    seen.add(r.symbol);
+    return true;
+  }).slice(0, limit);
 }
 
 /* ------------------------------------------------------------------ */
